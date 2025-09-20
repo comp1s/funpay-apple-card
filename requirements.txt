@@ -1,0 +1,6 @@
+requests
+python-dotenv
+colorama
+requests-toolbelt
+bs4
+lxml
