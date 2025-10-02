@@ -334,30 +334,31 @@ def handle_new_order(account: Account, order):
     logger.info(Style.BRIGHT + Fore.WHITE + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     try:
-        match = re.search(r"(\d+)", title)
-        nominal = int(match.group(1)) if match else 10
-        title = getattr(order, "title", "") or ""
-        title_lower = title.lower()
-        
-        if "try" in title_lower:
-            service_dict = SERVICE_IDS_TR
-            currency = "TRY"
-        elif "usd" in title_lower or "dollar" in title_lower:
-            service_dict = SERVICE_IDS_US
-            currency = "USD"
-        elif "rub" in title_lower or "₽" in title or "р" in title_lower:
-            service_dict = SERVICE_IDS_RU
-            currency = "RUB"
-        else:
-            logger.error(Fore.RED + f"❌ Не удалось определить страну из названия: {title}")
-            account.send_message(chat_id, "❌ Ошибка: страна не поддерживается.")
+        parsed = extract_apple_card(getattr(order, "full_description", "") or getattr(order, "short_description", ""))
+        if not parsed:
+            logger.error(Fore.RED + f"❌ В заказе {order.id} не найден формат apple_card: <номинал> <валюта> в описании")
+            account.send_message(chat_id, "❌ Ошибка: не удалось определить номинал карты. Укажите в описании: apple_card: <число> <TRY/USD/RUB>.")
             return
-        
+
+        nominal, currency = parsed
+
+        if currency == "TRY":
+            service_dict = SERVICE_IDS_TR
+        elif currency == "USD":
+            service_dict = SERVICE_IDS_US
+        elif currency == "RUB":
+            service_dict = SERVICE_IDS_RU
+        else:
+            logger.error(Fore.RED + f"❌ Валюта {currency} не поддерживается (заказ {order.id}).")
+            account.send_message(chat_id, f"❌ Ошибка: валюта {currency} не поддерживается.")
+            return
+
         service_id = service_dict.get(nominal)
         if not service_id:
-            logger.error(Fore.RED + f"❌ Номинал {nominal} не найден для {currency}")
-            account.send_message(chat_id, f"❌ Ошибка: неподдерживаемый номинал карты {currency}.")
+            logger.error(Fore.RED + f"❌ Номинал {nominal} {currency} не найден.")
+            account.send_message(chat_id, f"❌ Ошибка: неподдерживаемый номинал {nominal} {currency}.")
             return
+
         
         custom_id = create_order(service_id, 1.0)
         pay_order(custom_id)
@@ -430,6 +431,14 @@ def get_token():
 
 
 
+def extract_apple_card(description: str = "") -> tuple[int, str] | None:
+    text = (description or "").lower()
+    m = re.search(r"apple_card[:=]\s*(\d{1,6})\s*(try|usd|rub)", text)
+    if not m:
+        return None
+    nominal = int(m.group(1))
+    currency = m.group(2).upper()
+    return nominal, currency
 
 def get_balance():
     try:
